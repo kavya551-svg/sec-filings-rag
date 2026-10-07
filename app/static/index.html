@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SEC Filings Research Assistant</title>
+<style>
+  :root {
+    --bg: #fafaf9; --surface: #fff; --text: #1c1917; --muted: #57534e; --faint: #a8a29e;
+    --border: #e7e5e4; --accent: #0f766e; --accent-soft: #ccfbf1; --warn: #b45309; --warn-soft: #fef3c7;
+    --bad: #b91c1c; --bad-soft: #fee2e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0a09; --surface: #1c1917; --text: #f5f5f4; --muted: #a8a29e; --faint: #78716c;
+      --border: #292524; --accent: #2dd4bf; --accent-soft: #134e4a; --warn: #fbbf24; --warn-soft: #451a03;
+      --bad: #f87171; --bad-soft: #450a0a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+  input.ticker { flex: 0 0 120px; text-transform: uppercase; }
+  button { padding: 10px 18px; border: 0; border-radius: 8px; background: var(--accent); color: var(--bg); font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 1em; }
+  .status.error { color: var(--bad); }
+  .answer { white-space: pre-wrap; }
+  .cite { display: inline-block; font-size: 11px; font-weight: 600; line-height: 1; padding: 3px 5px; margin: 0 1px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); text-decoration: none; vertical-align: 2px; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.bad { background: var(--bad-soft); color: var(--bad); }
+  .badge.plain { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 28px 0 10px; }
+  details { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; background: var(--surface); }
+  details:target { border-color: var(--accent); }
+  summary { cursor: pointer; font-weight: 600; }
+  summary span { font-weight: 400; color: var(--muted); font-size: 13px; }
+  details p { color: var(--muted); font-size: 14px; margin: 10px 0 0; }
+  .meta { font-size: 13px; color: var(--muted); }
+  .meta a { color: var(--accent); }
+  ul.claims { margin: 8px 0 0; padding-left: 18px; color: var(--warn); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SEC Filings Research Assistant</h1>
+  <p class="sub">Ask questions about a company's latest 10-K. Every answer is cited and automatically checked for groundedness.</p>
+
+  <div class="panel">
+    <label for="ticker">1. Load a company's latest 10-K</label>
+    <div class="row">
+      <input id="ticker" class="ticker" placeholder="AAPL" maxlength="10">
+      <button id="ingest">Load filing</button>
+      <select id="loaded" aria-label="Already loaded companies"><option value="">Already loaded…</option></select>
+    </div>
+    <div id="ingest-status" class="status"></div>
+  </div>
+
+  <div class="panel">
+    <label for="question">2. Ask a question</label>
+    <div class="row">
+      <input id="question" placeholder="What are the company's biggest risk factors?">
+      <button id="ask">Ask</button>
+    </div>
+    <div id="ask-status" class="status"></div>
+  </div>
+
+  <div id="result" hidden>
+    <h2>Answer</h2>
+    <div class="panel">
+      <div id="answer" class="answer"></div>
+      <div id="badges" class="badges"></div>
+      <ul id="claims" class="claims"></ul>
+      <div id="filing" class="meta" style="margin-top:12px"></div>
+    </div>
+    <h2>Sources</h2>
+    <div id="sources"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : `Request failed (${res.status})`);
+  return data;
+}
+
+function setStatus(id, text, isError = false) {
+  $(id).textContent = text;
+  $(id).classList.toggle("error", isError);
+}
+
+async function refreshLoaded() {
+  try {
+    const companies = await api("/api/companies");
+    $("loaded").innerHTML = '<option value="">Already loaded…</option>' +
+      companies.map((c) => `<option value="${esc(c.ticker)}">${esc(c.ticker)} · ${esc(c.company)} (${esc(c.filing_date)})</option>`).join("");
+  } catch (_) { /* list is optional */ }
+}
+
+$("loaded").addEventListener("change", (e) => { if (e.target.value) $("ticker").value = e.target.value; });
+
+$("ingest").addEventListener("click", async () => {
+  const ticker = $("ticker").value.trim().toUpperCase();
+  if (!ticker) return setStatus("ingest-status", "Enter a ticker first.", true);
+  $("ingest").disabled = true;
+  setStatus("ingest-status", `Downloading and indexing ${ticker}'s latest 10-K… this can take a minute.`);
+  try {
+    const meta = await api("/api/ingest", { ticker });
+    setStatus("ingest-status", `Loaded ${meta.company} 10-K filed ${meta.filing_date} (${meta.num_chunks} chunks).`);
+    refreshLoaded();
+  } catch (err) {
+    setStatus("ingest-status", err.message, true);
+  } finally {
+    $("ingest").disabled = false;
+  }
+});
+
+function pct(x) { return x == null ? "n/a" : `${Math.round(x * 100)}%`; }
+
+function render(data) {
+  const ev = data.evaluation;
+  $("answer").innerHTML = esc(data.answer).replace(/\[(\d+)\]/g, (_, n) => `<a class="cite" href="#src-${n}">${n}</a>`);
+
+  const badges = [];
+  if (ev.refused) badges.push('<span class="badge plain">Not answered from filing</span>');
+  if (ev.groundedness != null) {
+    const cls = ev.groundedness >= 0.8 ? "" : ev.groundedness >= 0.5 ? "warn" : "bad";
+    badges.push(`<span class="badge ${cls}">Groundedness ${pct(ev.groundedness)}</span>`);
+  }
+  if (!ev.refused) badges.push(`<span class="badge plain">Citation coverage ${pct(ev.citation_coverage)}</span>`);
+  if (ev.invalid_citations?.length) badges.push(`<span class="badge bad">Invalid citations: ${ev.invalid_citations.join(", ")}</span>`);
+  badges.push(`<span class="badge plain">${(data.latency_ms.total / 1000).toFixed(1)}s</span>`);
+  $("badges").innerHTML = badges.join("");
+
+  $("claims").innerHTML = (ev.unsupported_claims || []).map((c) => `<li>Unsupported: ${esc(c)}</li>`).join("");
+  const f = data.filing;
+  $("filing").innerHTML = `${esc(f.company)} · ${esc(f.form)} filed ${esc(f.filing_date)} · <a href="${esc(f.url)}" target="_blank" rel="noopener">View filing on SEC.gov</a>`;
+
+  $("sources").innerHTML = data.sources.map((s) => `
+    <details id="src-${s.id}">
+      <summary>[${s.id}] ${esc(s.section)} <span>· dense #${s.dense_rank ?? "–"} · keyword #${s.bm25_rank ?? "–"}</span></summary>
+      <p>${esc(s.text)}</p>
+    </details>`).join("");
+  $("result").hidden = false;
+}
+
+async function ask() {
+  const ticker = $("ticker").value.trim().toUpperCase();
+  const question = $("question").value.trim();
+  if (!ticker || !question) return setStatus("ask-status", "Enter a ticker and a question.", true);
+  $("ask").disabled = true;
+  setStatus("ask-status", "Searching the filing and drafting a cited answer…");
+  try {
+    render(await api("/api/ask", { ticker, question }));
+    setStatus("ask-status", "");
+  } catch (err) {
+    setStatus("ask-status", err.message, true);
+  } finally {
+    $("ask").disabled = false;
+  }
+}
+
+$("ask").addEventListener("click", ask);
+$("question").addEventListener("keydown", (e) => { if (e.key === "Enter") ask(); });
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("a.cite");
+  if (link) { const d = document.querySelector(link.getAttribute("href")); if (d) d.open = true; }
+});
+refreshLoaded();
+</script>
+</body>
+</html>
