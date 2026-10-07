@@ -3,15 +3,16 @@
 Two checks run on every answer:
   * citation_check: rule-based - which sources were cited, invalid source numbers,
     and how many sentences carry a citation.
-  * judge: LLM-as-judge - a second Claude call scores how well the answer is supported
+  * judge: LLM-as-judge - a second model call scores how well the answer is supported
     by the retrieved sources (groundedness) and lists any unsupported claims.
+
+`client` is any object with complete(system, user, max_tokens) -> str (see providers.py).
 """
 from __future__ import annotations
 
 import json
 import re
 
-from . import config
 from .index import SearchResult
 
 NO_ANSWER = "The filing excerpts provided don't answer this question."
@@ -37,21 +38,12 @@ def format_sources(results: list[SearchResult]) -> str:
     return "\n\n".join(f"[{i}] ({r.chunk.section})\n{r.chunk.text}" for i, r in enumerate(results, start=1))
 
 
-def _text(message) -> str:
-    return "".join(block.text for block in message.content if block.type == "text").strip()
-
-
 def generate_answer(client, question: str, results: list[SearchResult], company: str) -> str:
-    message = client.messages.create(
-        model=config.ANTHROPIC_MODEL,
+    return client.complete(
+        ANSWER_SYSTEM,
+        f"Company: {company}\n\nSources:\n{format_sources(results)}\n\nQuestion: {question}",
         max_tokens=1024,
-        system=ANSWER_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": f"Company: {company}\n\nSources:\n{format_sources(results)}\n\nQuestion: {question}",
-        }],
     )
-    return _text(message)
 
 
 def _parse_json(text: str) -> dict:
@@ -62,17 +54,13 @@ def _parse_json(text: str) -> dict:
 
 
 def judge(client, question: str, answer: str, results: list[SearchResult]) -> dict:
-    message = client.messages.create(
-        model=config.ANTHROPIC_MODEL,
+    reply = client.complete(
+        JUDGE_SYSTEM,
+        f"Question: {question}\n\nSources:\n{format_sources(results)}\n\nAnswer:\n{answer}",
         max_tokens=512,
-        system=JUDGE_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": f"Question: {question}\n\nSources:\n{format_sources(results)}\n\nAnswer:\n{answer}",
-        }],
     )
     try:
-        verdict = _parse_json(_text(message))
+        verdict = _parse_json(reply)
         score = float(verdict.get("groundedness"))
         return {
             "groundedness": max(0.0, min(1.0, score)),

@@ -2,7 +2,7 @@
 
 Ask plain-English questions about any public company's latest **10-K** and get answers that are **cited to the exact filing passages** and **automatically checked for groundedness**.
 
-Built with Python, FastAPI, hybrid retrieval (dense embeddings + BM25), and the Anthropic Claude API.
+Built with Python, FastAPI, and hybrid retrieval (dense embeddings + BM25). Runs **completely free** with local open-source models via [Ollama](https://ollama.com), or with the Anthropic Claude API.
 
 > Example: *"How did total net revenue change compared with the prior year?"* → a short answer with numbered citations, a groundedness score, citation coverage, latency, and the source passages it used.
 
@@ -11,7 +11,8 @@ Built with Python, FastAPI, hybrid retrieval (dense embeddings + BM25), and the 
 - **Pulls filings straight from SEC EDGAR**: enter a ticker and the latest 10-K is downloaded, cleaned and indexed.
 - **Section-aware chunking**: chunks never cross 10-K "Items" (Business, Risk Factors, MD&A...), and every source shows which section it came from.
 - **Hybrid search**: dense embeddings for meaning plus BM25 for exact terms (figures, product names, defined terms), merged with reciprocal rank fusion.
-- **Cited answers**: Claude answers only from retrieved passages, cites every claim, and refuses when the filing doesn't contain the answer.
+- **Cited answers**: the model answers only from retrieved passages, cites every claim, and refuses when the filing doesn't contain the answer.
+- **Pluggable models**: free local models through Ollama (default), the Claude API, or any OpenAI-compatible endpoint, switched with one setting.
 - **Built-in evaluation**: every answer gets a rule-based citation check and an LLM-as-judge groundedness score, with unsupported claims listed.
 - **Eval harness**: a fixed question set (including unanswerable questions) reports refusal accuracy, groundedness, citation coverage, and p50/p95 latency.
 - **Three ways to use it**: web UI, REST API, and CLI.
@@ -28,7 +29,7 @@ flowchart LR
     Q[Question] --> G[Hybrid search<br/>RRF fusion]
     E --> G
     F --> G
-    G --> H[Claude: cited answer]
+    G --> H[LLM: cited answer<br/>Ollama or Claude]
     H --> I[Citation check]
     H --> J[LLM judge:<br/>groundedness]
     I --> K[Answer + sources<br/>+ scores]
@@ -37,7 +38,16 @@ flowchart LR
 
 ## Quickstart
 
-Requires Python 3.10+ and an [Anthropic API key](https://console.anthropic.com).
+Requires Python 3.10+. Free by default: no API key needed.
+
+**1. Install Ollama** from [ollama.com](https://ollama.com) and download a model:
+
+```bash
+ollama pull llama3.2        # ~2 GB, runs on most laptops
+# or, with 16 GB+ RAM, a stronger model:  ollama pull llama3.1:8b  (then set LLM_MODEL=llama3.1:8b)
+```
+
+**2. Install the project:**
 
 ```bash
 git clone https://github.com/kavya551-svg/sec-filings-rag.git
@@ -48,10 +58,14 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env             # Windows: copy .env.example .env
-# then edit .env: add ANTHROPIC_API_KEY and SEC_USER_AGENT ("Your Name your@email.com")
+# then edit .env and set SEC_USER_AGENT ("Your Name your@email.com")
 ```
 
-The first run downloads a small embedding model (about 90 MB) that runs locally on CPU.
+The first run also downloads a small embedding model (about 90 MB) that runs locally on CPU.
+
+**Using Claude instead (paid, higher quality):** in `.env`, set `LLM_PROVIDER=anthropic` and add your `ANTHROPIC_API_KEY`.
+
+Small local models follow the citation format less reliably than Claude, which shows up directly in the citation-coverage and groundedness scores. Comparing providers with the eval harness is a good way to see the trade-off.
 
 ## Usage
 
@@ -114,6 +128,7 @@ Runs the questions in `evals/questions.json` (8 answerable, 2 that a 10-K can't 
 - **Chunks respect filing structure.** Splitting by 10-K Item keeps passages coherent and makes citations meaningful ("Item 1A. Risk Factors" rather than "chunk 412").
 - **Two independent checks.** The citation check is cheap and deterministic; the LLM judge catches claims that are cited but not actually supported.
 - **Explicit refusal.** The assistant is instructed to say when the filing doesn't answer a question, and the eval set includes questions that should be refused.
+- **Provider-agnostic LLM layer.** Answering and judging go through one small `complete()` interface, so the same pipeline and evals run on a free local model or on Claude.
 - **Local embeddings.** No embedding API key or cost; the index is a NumPy array saved to disk, which is plenty for one filing (a few hundred to a few thousand chunks).
 
 ## Project structure
@@ -124,6 +139,7 @@ app/
   chunking.py   # section-aware chunking
   index.py      # embeddings + BM25 + reciprocal rank fusion
   llm.py        # cited answers, citation check, LLM judge
+  providers.py  # Ollama, Claude and OpenAI-compatible model backends
   pipeline.py   # ingest and ask
   api.py        # FastAPI service
   static/       # web UI

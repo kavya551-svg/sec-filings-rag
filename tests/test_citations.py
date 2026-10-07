@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from app.chunking import Chunk
 from app.index import SearchResult
 from app.llm import NO_ANSWER, citation_check, is_refusal, judge
@@ -30,8 +28,10 @@ def test_refusal_detection():
 
 class FakeClient:
     def __init__(self, reply: str):
-        self.messages = SimpleNamespace(create=lambda **_: SimpleNamespace(
-            content=[SimpleNamespace(type="text", text=reply)]))
+        self.reply = reply
+
+    def complete(self, system, user, max_tokens=1024):
+        return self.reply
 
 
 RESULTS = [SearchResult(Chunk(0, "Item 7", "Revenue grew 8 percent."), 0.03, 1, 1)]

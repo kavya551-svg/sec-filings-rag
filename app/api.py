@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from . import pipeline
+from .providers import LLMError
 
 app = FastAPI(title="SEC Filings Research Assistant", version="1.0.0")
 STATIC_DIR = Path(__file__).parent / "static"
@@ -58,3 +59,5 @@ def ask(request: AskRequest):
         return pipeline.ask(request.ticker, request.question, k=request.k, evaluate=request.evaluate)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))

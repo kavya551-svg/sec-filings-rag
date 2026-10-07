@@ -8,6 +8,7 @@ from . import config, edgar
 from .chunking import chunk_text
 from .index import Embedder, HybridIndex, SentenceTransformerEmbedder
 from .llm import citation_check, generate_answer, is_refusal, judge
+from .providers import make_llm
 
 _embedder: Embedder | None = None
 _client = None
@@ -22,11 +23,10 @@ def get_embedder() -> Embedder:
 
 
 def get_client():
+    """Return the configured LLM (Ollama by default; see providers.py)."""
     global _client
     if _client is None:
-        import anthropic
-
-        _client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
+        _client = make_llm()
     return _client
 
 
