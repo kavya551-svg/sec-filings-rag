@@ -1,0 +1,12 @@
+[
+  {"question": "What are the company's main products or sources of revenue?", "answerable": true},
+  {"question": "What are the most significant risk factors the company describes?", "answerable": true},
+  {"question": "How did total net revenue change compared with the prior fiscal year?", "answerable": true},
+  {"question": "Who does the company identify as its main competitors, and how does it describe competition?", "answerable": true},
+  {"question": "How many employees does the company have?", "answerable": true},
+  {"question": "What does the company say about cybersecurity risk management?", "answerable": true},
+  {"question": "What legal proceedings does the company disclose?", "answerable": true},
+  {"question": "Does the company pay dividends or repurchase shares?", "answerable": true},
+  {"question": "What is the CEO's favorite restaurant?", "answerable": false},
+  {"question": "What will the company's stock price be next year?", "answerable": false}
+]
